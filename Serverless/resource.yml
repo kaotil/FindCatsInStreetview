@@ -1,0 +1,505 @@
+---
+# Route53 ホストゾーン作成と ACM は手動で実行
+# Systems Manager のパラメータストアに Google API キー Lambda 用設定は手動で実行
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Serverless Manual Approval Stack
+Conditions:
+  IsDevelop: !Equals ["${self:provider.stage}", "dev"]
+  IsProduction: !Equals ["${self:provider.stage}", "prd"]
+Mappings:
+  MyMappings:
+    ip:
+      SourceCIDR01: "${self:provider.source_cidr_01}"
+    dev:
+      DomainName: "dev.find-cats.kaotil.com"
+      AllowOrigin: "https://dev.find-cats.kaotil.com"
+      CertificateId: "2dd26c4c-0394-4b3c-b7a5-58ef4a138310"
+      HostedZoneId: "Z20LCWHK5E4AEP"
+    prd:
+      DomainName: "find-cats.kaotil.com"
+      AllowOrigin: "*"
+#      AllowOrigin: "https://find-cats.kaotil.com"
+      CertificateId: "29070d76-27e8-416a-bdc3-a1ca6f71efd3"
+      HostedZoneId: "Z113RM9U5TYDIF"
+Resources:
+  ApigatewayToStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "ApigatewayToStepFunctionsRole-${self:provider.stage}"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSStepFunctionsFullAccess
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: IsProduction
+    Properties:
+      BucketName: !FindInMap [ "MyMappings", "${self:provider.stage}", "DomainName" ]
+      AccessControl: Private
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: false
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+  
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: IsProduction
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOriginAccessIdentity
+            Effect: Allow
+            Principal:
+              AWS: !Join ['', ['arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ', !Ref CloudFrontOriginAccessIdentity]]
+            Action: 's3:GetObject'
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref S3Bucket, /*]]
+      Bucket: !Ref S3Bucket
+      
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        PriceClass: PriceClass_200
+        WebACLId: !If 
+          - IsDevelop
+          - !Ref WebACL
+          - !Ref "AWS::NoValue"
+        Aliases: 
+        - !FindInMap [ "MyMappings", "${self:provider.stage}", "DomainName" ]
+        ViewerCertificate:
+          AcmCertificateArn: !Join
+            - ''
+            - - 'arn:aws:acm:us-east-1:'
+              - !Ref 'AWS::AccountId'
+              - ':certificate/'
+              - !FindInMap [ "MyMappings", "${self:provider.stage}", "CertificateId" ]
+          SslSupportMethod: "sni-only"
+        Origins:
+        - Id: S3Origin
+          DomainName: !If 
+            - IsDevelop
+            - !Join [ "", [ !FindInMap [ "MyMappings", "${self:provider.stage}", "DomainName" ], ".s3.amazonaws.com" ] ]
+            - !GetAtt S3Bucket.DomainName
+          S3OriginConfig:
+            OriginAccessIdentity: !Join 
+              - ''
+              - - 'origin-access-identity/cloudfront/'
+                - !Ref CloudFrontOriginAccessIdentity
+        Enabled: true
+        DefaultRootObject: index.html
+        Comment: !Sub "find-cats.kaotil.com distribution ${self:provider.stage}"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: false
+          ViewerProtocolPolicy: redirect-to-https
+          
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "find-cats.kaotil.com ${self:provider.stage}"
+
+  CloudFrontRecordSet:
+    Type: "AWS::Route53::RecordSet"
+    Properties:
+      Name: !FindInMap [ "MyMappings", "${self:provider.stage}", "DomainName" ]
+      Type: "A"
+      HostedZoneId: !FindInMap [ "MyMappings", "${self:provider.stage}", "HostedZoneId" ]
+      AliasTarget:
+        HostedZoneId: "Z2FDTNDATAQYW2"
+        DNSName: !GetAtt [ "CloudFrontDistribution", "DomainName"]
+        
+  IPSetWhitelist: 
+    Type: "AWS::WAF::IPSet"
+    Condition: IsDevelop
+    Properties: 
+      Name: "FindCatsIPSetWhiteList-${self:provider.stage}"
+      IPSetDescriptors: 
+        - 
+          Type: "IPV4"
+          Value: !FindInMap [ "MyMappings", "ip", "SourceCIDR01" ]
+
+  IPSetRule: 
+    Type: "AWS::WAF::Rule"
+    Condition: IsDevelop
+    Properties: 
+      Name: "FindCatsIPSetRule-${self:provider.stage}"
+      MetricName: "FindCatsIPSetRule${self:provider.stage}"
+      Predicates: 
+        - 
+          DataId: 
+            Ref: "IPSetWhitelist"
+          Negated: false
+          Type: "IPMatch"
+
+  WebACL: 
+    Type: "AWS::WAF::WebACL"
+    Condition: IsDevelop
+    Properties: 
+      Name: "FindCatsWebACL-${self:provider.stage}"
+      MetricName: "FindCatsWebACL${self:provider.stage}"
+      DefaultAction: 
+        Type: "BLOCK"
+      Rules: 
+        - 
+          Action: 
+            Type: "ALLOW"
+          Priority: 1
+          RuleId: 
+            Ref: "IPSetRule"
+            
+  OriginCondition:
+    Type: "AWS::WAFRegional::ByteMatchSet"
+    Properties:
+      Name: "FindCatsOriginCondition-${self:provider.stage}"
+      ByteMatchTuples:
+        - FieldToMatch:
+            Type: "HEADER"
+            Data: "Origin"
+          TargetString: !Join 
+            - ''
+            - - 'https://'
+              - !FindInMap [ "MyMappings", "${self:provider.stage}", "DomainName" ]
+          PositionalConstraint: "STARTS_WITH"
+          TextTransformation: "NONE"
+
+  OriginRule:
+    Type: "AWS::WAFRegional::Rule"
+    Properties:
+      Name: "FindCatsOriginRule-${self:provider.stage}"
+      MetricName: "FindCatsOriginRule${self:provider.stage}"
+      Predicates:
+        - DataId: !Ref "OriginCondition"
+          Negated: false
+          Type: "ByteMatch"
+          
+  ApiGatewayACL:
+    Type: "AWS::WAFRegional::WebACL"
+    Properties:
+      Name: "FindCatsApiGatewayACL-${self:provider.stage}"
+      MetricName: "FindCatsApiGatewayACL${self:provider.stage}"
+      DefaultAction:
+        Type: "BLOCK"
+      Rules:
+        - Action:
+            Type: "ALLOW"
+          Priority: 1
+          RuleId: 
+            Ref: "OriginRule"
+            
+  ApiGatewayACLAssociation:
+    Type: "AWS::WAFRegional::WebACLAssociation"
+    Properties:
+      ResourceArn: !Join
+        - ""
+        - - "arn:aws:apigateway:"
+          - !Ref "AWS::Region"
+          - "::/restapis/"
+          - !If [IsDevelop, !Ref Api, !ImportValue ApiResourceID]
+          - "/stages/${self:provider.api_gateway_stage}"
+      WebACLId: !Ref "ApiGatewayACL"
+      
+  Api:
+    Type: "AWS::ApiGateway::RestApi"
+    Condition: IsDevelop
+    Properties:
+      Name: "FindCatsInStreetView"
+      Description: "for FindCatsInStreetView"
+      
+  ResourceExecution:
+    Type: "AWS::ApiGateway::Resource"
+    Condition: IsDevelop
+    Properties:
+      RestApiId: !Ref Api
+      ParentId: !GetAtt Api.RootResourceId  
+      PathPart: "exec"
+      
+  ResourceStatus:
+    Type: "AWS::ApiGateway::Resource"
+    Condition: IsDevelop
+    Properties:
+      RestApiId: !Ref Api
+      ParentId: !GetAtt Api.RootResourceId  
+      PathPart: "status"
+        
+  MethodExecutionOptions:
+    Type: "AWS::ApiGateway::Method"
+    Condition: IsDevelop
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref ResourceExecution
+      AuthorizationType: NONE
+      HttpMethod: "OPTIONS"
+      Integration:
+        Type: "MOCK"
+        IntegrationResponses: 
+          - StatusCode: 200 
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'" 
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'" 
+              method.response.header.Access-Control-Allow-Origin:  "stageVariables.AllowOriginURL"
+            ResponseTemplates: 
+              application/json: '' 
+        PassthroughBehavior: WHEN_NO_MATCH 
+        RequestTemplates: 
+          application/json: '{"statusCode": 200}'
+      MethodResponses: 
+        - StatusCode: 200 
+          ResponseModels: 
+            application/json: 'Empty' 
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Headers: false 
+            method.response.header.Access-Control-Allow-Methods: false 
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  MethodStatusOptions:
+    Type: "AWS::ApiGateway::Method"
+    Condition: IsDevelop
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref ResourceStatus
+      AuthorizationType: NONE
+      HttpMethod: "OPTIONS"
+      Integration:
+        Type: "MOCK"
+        IntegrationResponses: 
+          - StatusCode: 200 
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'" 
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'" 
+              method.response.header.Access-Control-Allow-Origin: "stageVariables.AllowOriginURL"
+            ResponseTemplates: 
+              application/json: '' 
+        PassthroughBehavior: WHEN_NO_MATCH 
+        RequestTemplates: 
+          application/json: '{"statusCode": 200}'
+      MethodResponses: 
+        - StatusCode: 200 
+          ResponseModels: 
+            application/json: 'Empty' 
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Headers: false 
+            method.response.header.Access-Control-Allow-Methods: false 
+            method.response.header.Access-Control-Allow-Origin: true
+            
+  MethodExecution:
+    Type: "AWS::ApiGateway::Method"
+    Condition: IsDevelop
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref ResourceExecution
+      AuthorizationType: "None"
+      HttpMethod: "POST"
+      ApiKeyRequired: true
+      Integration:
+        Type: "AWS"
+        IntegrationHttpMethod: "POST"
+        Uri:
+          Fn::Join: [ "", [ "arn:aws:apigateway:", Ref: "AWS::Region", ":states:action/StartExecution" ] ]
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Credentials: !GetAtt ApigatewayToStepFunctionsRole.Arn
+        IntegrationResponses: 
+          - StatusCode: 200 
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "stageVariables.AllowOriginURL"
+            ResponseTemplates: 
+              application/json: ''
+#          - StatusCode: 400
+#            SelectionPattern: '.*message.*'
+#            ResponseParameters: 
+#              method.response.header.Access-Control-Allow-Origin: "'*'" 
+#            ResponseTemplates: 
+#              application/json: ''
+        # RequestTemplates: 
+        #   application/json: '{"statusCode": 200}'
+      MethodResponses: 
+        - StatusCode: 200 
+          ResponseModels: 
+            application/json: 'Empty'
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+#        - StatusCode: 400 
+#          ResponseModels: 
+#            application/json: 'Empty' 
+#          ResponseParameters: 
+#            method.response.header.Access-Control-Allow-Origin: false
+        
+  MethodStatus:
+    Type: "AWS::ApiGateway::Method"
+    Condition: IsDevelop
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref ResourceStatus
+      AuthorizationType: "None"
+      HttpMethod: "POST"
+      ApiKeyRequired: true
+      Integration:
+        Type: "AWS"
+        IntegrationHttpMethod: "POST"
+        Uri:
+          Fn::Join: [ "", [ "arn:aws:apigateway:", Ref: "AWS::Region", ":states:action/DescribeExecution" ] ]
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        Credentials: !GetAtt ApigatewayToStepFunctionsRole.Arn
+        IntegrationResponses: 
+          - StatusCode: 200 
+            ResponseParameters: 
+              method.response.header.Access-Control-Allow-Origin: "stageVariables.AllowOriginURL"
+            ResponseTemplates: 
+              application/json: ''
+#          - StatusCode: 400
+#            SelectionPattern: '.*Error.*'
+#            ResponseParameters: 
+#              method.response.header.Access-Control-Allow-Origin: "'*'" 
+#            ResponseTemplates: 
+#              application/json: ''
+        # RequestTemplates: 
+        #   application/json: '{"statusCode": 200}'
+      MethodResponses: 
+        - StatusCode: 200 
+          ResponseModels: 
+            application/json: 'Empty' 
+          ResponseParameters: 
+            method.response.header.Access-Control-Allow-Origin: true
+#        - StatusCode: 400 
+#          ResponseModels: 
+#            application/json: 'Empty' 
+#          ResponseParameters: 
+#            method.response.header.Access-Control-Allow-Origin: false
+            
+  # 本番の時は DependsOn をコメントアウト
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    # DependsOn:
+    #   - MethodExecution
+    #   - MethodStatus
+    Properties:
+      RestApiId: !If 
+        - IsDevelop
+        - !Ref Api
+        - !ImportValue ApiResourceID
+      StageName: "${self:provider.api_gateway_stage}"
+      Description: "${self:provider.api_gateway_stage}"
+      StageDescription: 
+        Description: "${self:provider.api_gateway_stage} stage"
+        DataTraceEnabled: true
+        LoggingLevel: INFO
+        TracingEnabled: true
+        MethodSettings:
+        - LoggingLevel: INFO
+          ResourcePath: /*
+          HttpMethod: '*'
+          MetricsEnabled: true
+        #   CachingEnabled: true
+        #   CacheTtlInSeconds: 3600
+        # CacheClusterEnabled: true
+        # CacheClusterSize: 0.5
+        # CacheDataEncrypted: false
+        # CachingEnabled: true
+        Variables:
+          AllowOriginURL: !FindInMap [ "MyMappings", "${self:provider.stage}", "AllowOrigin" ]
+  
+  # 本番の時は DependsOn の Api をコメントアウト
+  ApiKey:
+    Type: "AWS::ApiGateway::ApiKey"
+    DependsOn: 
+#      - Api
+      - ApiDeployment
+    Properties:
+      Description: "${self:service}-key-${self:provider.stage}"
+      Name: "${self:service}-key-${self:provider.stage}"
+      Enabled: "true"
+      StageKeys: 
+        - RestApiId: !If 
+          - IsDevelop
+          - !Ref Api
+          - !ImportValue ApiResourceID
+          StageName: "${self:provider.api_gateway_stage}"
+      
+  # 本番の時は DependsOn の Api をコメントアウト
+  usagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: 
+#      - Api
+      - ApiDeployment
+    Properties:
+      UsagePlanName: "${self:service} usage plan ${self:provider.stage}"
+      Description: "${self:service} usage plan ${self:provider.stage}"
+      ApiStages:
+      - ApiId: !If 
+        - IsDevelop
+        - !Ref Api
+        - !ImportValue ApiResourceID
+        Stage: "${self:provider.api_gateway_stage}"
+      Quota:
+        Limit: 750
+        Period: WEEK
+      Throttle:
+        BurstLimit: 1
+        RateLimit: 5
+    
+  usagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    DependsOn: 
+      - ApiKey
+      - usagePlan
+    Properties: 
+      KeyId: !Ref 'ApiKey'
+      KeyType: API_KEY
+      UsagePlanId: !Ref 'usagePlan'
+
+  InvokeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "InvokeLambdaRole-${self:provider.stage}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: StepFunctionsAssumeRolePolicy
+            Effect: Allow
+            Principal:
+              Service:
+                Fn::Join: [ ".", [ states, Ref: "AWS::Region", amazonaws, com ] ]
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaRole
+        
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: "${self:service}-${self:provider.stage}-state"
+      RoleArn: !GetAtt InvokeLambdaRole.Arn
+      DefinitionString: |-
+        {
+          "StartAt": "FindCatsInStreetViewState",
+          "States": {
+            "FindCatsInStreetViewState": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:${self:provider.region}:#{AWS::AccountId}:function:${self:service}-${self:provider.stage}-index",
+              "End": true
+            }
+          }
+        }
+        
+Outputs:
+  ApiResourceID:
+    Condition: IsDevelop
+    Value: !Ref Api
+    Export:
+      Name: ApiResourceID

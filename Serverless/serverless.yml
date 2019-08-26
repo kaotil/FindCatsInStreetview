@@ -1,0 +1,57 @@
+service: FindCatsInStreetView
+plugins:
+  - serverless-python-requirements
+  - serverless-pseudo-parameters
+custom:
+  defaultStage: dev
+  api_gateway_stage:
+    dev: "dev"
+    prd: "v1"
+  s3_backet_name:
+    dev: "dev.find-cats.kaotil.com"
+    prd: "find-cats.kaotil.com"
+provider:
+  name: aws
+  runtime: python3.6
+  region: ap-northeast-1
+  stage: ${opt:stage, self:custom.defaultStage}
+  api_gateway_stage: ${self:custom.api_gateway_stage.${self:provider.stage}}
+  source_cidr_01: ${ssm:SourceCIDR01}
+  timeout: 900
+  environment:
+    GOOGLE_APIKEY: ${ssm:${self:provider.stage}.GOOGLE_APIKEY}
+    S3_BACKET_NAME: ${self:custom.s3_backet_name.${self:provider.stage}}
+  iamRoleStatements:
+    - Effect: Allow
+      Action: 
+        - "s3:PutObject"
+        - "s3:PutObjectAcl"
+      Resource: 
+        - "arn:aws:s3:::${self:custom.s3_backet_name.${self:provider.stage}}/*"
+    - Effect: Allow
+      Action: 
+        - "rekognition:CompareFaces"
+        - "rekognition:DetectFaces"
+        - "rekognition:DetectLabels"
+        - "rekognition:ListCollections"
+        - "rekognition:ListFaces"
+        - "rekognition:SearchFaces"
+        - "rekognition:SearchFacesByImage"
+        - "rekognition:DetectText"
+        - "rekognition:GetCelebrityInfo"
+        - "rekognition:RecognizeCelebrities"
+        - "rekognition:DetectModerationLabels"
+        - "rekognition:GetLabelDetection"
+        - "rekognition:GetFaceDetection"
+        - "rekognition:GetContentModeration"
+        - "rekognition:GetPersonTracking"
+        - "rekognition:GetCelebrityRecognition"
+        - "rekognition:GetFaceSearch"
+        - "rekognition:DescribeStreamProcessor"
+        - "rekognition:ListStreamProcessors"
+      Resource: "*"
+functions:
+  index:
+    handler: handler.index
+resources: ${file(resource.yml)}
+
