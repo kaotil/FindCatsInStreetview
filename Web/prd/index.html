@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>FindCatInStreetView</title>
+<link rel="stylesheet" href="css/index.css"></link>
+<script src="js/index.js"></script>
+<script src="https://kit.fontawesome.com/601aac5008.js"></script>
+</head>
+<body>
+  <div class="fa-8x" id="spinner">
+    <i class="fas fa-spinner fa-spin"></i>
+  </div>
+
+  <input id="pac-input" class="controls" type="text" placeholder="場所のキーワード検索">
+
+  <div id="search-panel">
+    <div id="sbox"><span id="set_lat"></span>,<span id="set_lng"></span></div>
+    <input id="sbtn" type="button" value="Find Cats!" onclick="getData();" />
+  </div>
+
+  <div id="map">map</div>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCV_azyzJc4SVMuI9xG6VPAzyej7SCuuqc&libraries=places&callback=initMap" async defer></script>
+
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-74440319-2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'UA-74440319-2');
+</script>
+</body>
+</html>

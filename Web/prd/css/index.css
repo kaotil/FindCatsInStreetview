@@ -1,0 +1,129 @@
+html { height: 100% }
+body { height: 100% }
+#map { height: 100%; width: 100%}
+
+#pac-input {
+  background-color: #fff;
+  font-family: Roboto;
+  font-size: 15px;
+  font-weight: 300;
+  margin: 10px 0 0 12px;
+  padding: 0 11px 0 13px;
+  text-overflow: ellipsis;
+  width: 400px;
+}
+
+#pac-input:focus {
+  border-color: #4d90fe;
+}
+
+#search-panel {
+  top:90%;
+  z-index: 15;
+  position:relative;
+}
+
+#sbox{
+  position:absolute;/*フォームの絶対位置*/
+  left:30%;
+  top:0;
+  width:500px;
+  height:25px;/*検索ボックスの高さ*/
+  padding: 5px;/*テキスト位置調整*/
+  background:#fff;/*検索ボックスの背景カラー*/
+  border: 1px solid #777;
+  vertical-align: middle;
+  text-align: center;
+}
+
+#sbtn{
+  width:150px;/*検索ボタンの横幅*/
+  height:30px;/*検索ボタンの縦幅*/
+  position:absolute;/*検索ボタンの絶対位置*/
+  left:65%;/*検索ボタンの位置調整*/
+  top:0;
+  border-radius:0 2px 2px 0;/*検索ボタンの角を丸める*/
+  background:#FFFF11;/*検索ボタンの背景カラー*/
+  border:none;/*検索ボタンの枠線を消す*/
+  color:#000;/*検索ボタンのテキストカラー*/
+  font-weight:bold;/*検索ボタンのテキスト太字*/
+  font-size:16px;/*検索ボタンのフォントサイズ*/
+}
+
+#sbtn:hover{
+  color:#FF0000;/*検索ボタンマウスオーバー時のフォントカラー*/
+}
+
+i.fas,
+i.fab {
+  color: dimgray;
+}
+
+#spinner {
+  display: none;
+  position: absolute;
+  top: 45%;
+  left: 45%;
+  z-index: 20;
+}
+
+/* Window alert */
+#modalContainer {
+  background-color:rgba(0, 0, 0, 0.3);
+  position:absolute;
+  top:0;
+  width:100%;
+  height:100%;
+  left:0px;
+  z-index:10000;
+  /*background-image:url(tp.png); *//* required by MSIE to prevent actions on lower z-index elements */
+}
+
+#alertBox {
+  position:relative;
+  width:33%;
+  min-height:100px;
+  max-height:400px;
+  margin-top:50px;
+  border:1px solid #fff;
+  background-color:#fff;
+  background-repeat:no-repeat;
+  top:30%;
+}
+
+#modalContainer > #alertBox {
+  position:fixed;
+}
+
+#alertBox h1 {
+  margin:0;
+  font:bold 1em Raleway,arial;
+  background-color:#FFFF11;
+  color:#000;
+  border-bottom:1px solid #FFFF11;
+  padding:10px 0 10px 5px;
+}
+
+#alertBox p {
+  height:50px;
+  padding-left:5px;
+  padding-top:30px;
+  text-align:center;
+  vertical-align:middle;
+}
+
+#alertBox #closeBtn {
+  display:block;
+  position:relative;
+  margin:10px auto 10px auto;
+  padding:7px;
+  border:0 none;
+  width:70px;
+  text-transform:uppercase;
+  text-align:center;
+  color:#000;
+  background-color:#FFFF11;
+  border-radius: 0px;
+  text-decoration:none;
+  outline:0!important;
+}
