@@ -1,6 +1,6 @@
 # FindCatsInStreetview
 
-## Cloud9
+## Cloud9 設定
 
 ### Python Setting
 
@@ -29,4 +29,12 @@ export AWS_SECRET_ACCESS_KEY=XXXXXXXXXXXXXXXXXXXXXXXX
 export AWS_DEFAULT_REGION=ap-northeast-1
 
 $ source ~/.bashrc
+```
+
+### git Setting
+
+```
+$ git config --global user.name "xxx"
+$ git config --global user.email xxx
+$ git config --global core.editor vim
 ```
