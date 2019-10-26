@@ -18,8 +18,7 @@ Mappings:
       HostedZoneId: "Z20LCWHK5E4AEP"
     prd:
       DomainName: "find-cats.kaotil.com"
-      AllowOrigin: "*"
-#      AllowOrigin: "https://find-cats.kaotil.com"
+      AllowOrigin: "https://find-cats.kaotil.com"
       CertificateId: "29070d76-27e8-416a-bdc3-a1ca6f71efd3"
       HostedZoneId: "Z113RM9U5TYDIF"
 Resources:
@@ -178,42 +177,6 @@ Resources:
               - !FindInMap [ "MyMappings", "${self:provider.stage}", "DomainName" ]
           PositionalConstraint: "STARTS_WITH"
           TextTransformation: "NONE"
-
-  OriginRule:
-    Type: "AWS::WAFRegional::Rule"
-    Properties:
-      Name: "FindCatsOriginRule-${self:provider.stage}"
-      MetricName: "FindCatsOriginRule${self:provider.stage}"
-      Predicates:
-        - DataId: !Ref "OriginCondition"
-          Negated: false
-          Type: "ByteMatch"
-          
-  ApiGatewayACL:
-    Type: "AWS::WAFRegional::WebACL"
-    Properties:
-      Name: "FindCatsApiGatewayACL-${self:provider.stage}"
-      MetricName: "FindCatsApiGatewayACL${self:provider.stage}"
-      DefaultAction:
-        Type: "BLOCK"
-      Rules:
-        - Action:
-            Type: "ALLOW"
-          Priority: 1
-          RuleId: 
-            Ref: "OriginRule"
-            
-  ApiGatewayACLAssociation:
-    Type: "AWS::WAFRegional::WebACLAssociation"
-    Properties:
-      ResourceArn: !Join
-        - ""
-        - - "arn:aws:apigateway:"
-          - !Ref "AWS::Region"
-          - "::/restapis/"
-          - !If [IsDevelop, !Ref Api, !ImportValue ApiResourceID]
-          - "/stages/${self:provider.api_gateway_stage}"
-      WebACLId: !Ref "ApiGatewayACL"
       
   Api:
     Type: "AWS::ApiGateway::RestApi"
@@ -320,25 +283,12 @@ Resources:
               method.response.header.Access-Control-Allow-Origin: "stageVariables.AllowOriginURL"
             ResponseTemplates: 
               application/json: ''
-#          - StatusCode: 400
-#            SelectionPattern: '.*message.*'
-#            ResponseParameters: 
-#              method.response.header.Access-Control-Allow-Origin: "'*'" 
-#            ResponseTemplates: 
-#              application/json: ''
-        # RequestTemplates: 
-        #   application/json: '{"statusCode": 200}'
       MethodResponses: 
         - StatusCode: 200 
           ResponseModels: 
             application/json: 'Empty'
           ResponseParameters: 
             method.response.header.Access-Control-Allow-Origin: true
-#        - StatusCode: 400 
-#          ResponseModels: 
-#            application/json: 'Empty' 
-#          ResponseParameters: 
-#            method.response.header.Access-Control-Allow-Origin: false
         
   MethodStatus:
     Type: "AWS::ApiGateway::Method"
@@ -362,32 +312,18 @@ Resources:
               method.response.header.Access-Control-Allow-Origin: "stageVariables.AllowOriginURL"
             ResponseTemplates: 
               application/json: ''
-#          - StatusCode: 400
-#            SelectionPattern: '.*Error.*'
-#            ResponseParameters: 
-#              method.response.header.Access-Control-Allow-Origin: "'*'" 
-#            ResponseTemplates: 
-#              application/json: ''
-        # RequestTemplates: 
-        #   application/json: '{"statusCode": 200}'
       MethodResponses: 
         - StatusCode: 200 
           ResponseModels: 
             application/json: 'Empty' 
           ResponseParameters: 
             method.response.header.Access-Control-Allow-Origin: true
-#        - StatusCode: 400 
-#          ResponseModels: 
-#            application/json: 'Empty' 
-#          ResponseParameters: 
-#            method.response.header.Access-Control-Allow-Origin: false
             
-  # 本番の時は DependsOn をコメントアウト
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
-    # DependsOn:
-    #   - MethodExecution
-    #   - MethodStatus
+     DependsOn:
+       - MethodExecution
+       - MethodStatus
     Properties:
       RestApiId: !If 
         - IsDevelop
@@ -405,20 +341,13 @@ Resources:
           ResourcePath: /*
           HttpMethod: '*'
           MetricsEnabled: true
-        #   CachingEnabled: true
-        #   CacheTtlInSeconds: 3600
-        # CacheClusterEnabled: true
-        # CacheClusterSize: 0.5
-        # CacheDataEncrypted: false
-        # CachingEnabled: true
         Variables:
           AllowOriginURL: !FindInMap [ "MyMappings", "${self:provider.stage}", "AllowOrigin" ]
-  
-  # 本番の時は DependsOn の Api をコメントアウト
+
   ApiKey:
     Type: "AWS::ApiGateway::ApiKey"
     DependsOn: 
-#      - Api
+      - Api
       - ApiDeployment
     Properties:
       Description: "${self:service}-key-${self:provider.stage}"
@@ -431,11 +360,10 @@ Resources:
           - !ImportValue ApiResourceID
           StageName: "${self:provider.api_gateway_stage}"
       
-  # 本番の時は DependsOn の Api をコメントアウト
   usagePlan:
     Type: AWS::ApiGateway::UsagePlan
     DependsOn: 
-#      - Api
+      - Api
       - ApiDeployment
     Properties:
       UsagePlanName: "${self:service} usage plan ${self:provider.stage}"
